@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Panaweb</title>
+<style>
+body{
+    font-family: Arial, sans-serif;
+    background:#f0f2f5;
+    margin:0;
+}
+header{
+    background:#1877f2;
+    color:white;
+    padding:15px;
+    text-align:center;
+    font-size:24px;
+}
+.container{
+    width:90%;
+    max-width:800px;
+    margin:20px auto;
+}
+.card{
+    background:white;
+    padding:15px;
+    margin-bottom:15px;
+    border-radius:8px;
+    box-shadow:0 0 5px rgba(0,0,0,0.1);
+}
+button{
+    background:#1877f2;
+    color:white;
+    border:none;
+    padding:8px 12px;
+    border-radius:5px;
+    cursor:pointer;
+}
+button:hover{ opacity:0.8; }
+input, textarea{
+    width:100%;
+    padding:8px;
+    margin-bottom:10px;
+}
+img{
+    max-width:100%;
+    border-radius:8px;
+}
+.like{
+    color:#1877f2;
+    cursor:pointer;
+}
+.admin{
+    background:#ff4d4d;
+}
+.logout{
+    background:#555;
+    float:right;
+}
+</style>
+</head>
+<body>
+
+<header>
+    Panaweb
+    <button class="logout" onclick="logout()" id="logoutBtn" style="display:none;">Cerrar sesión</button>
+</header>
+
+<div class="container" id="auth">
+    <div class="card">
+        <h3>Registro</h3>
+        <input type="text" id="regUser" placeholder="Usuario">
+        <input type="password" id="regPass" placeholder="Contraseña">
+        <button onclick="register()">Registrarse</button>
+    </div>
+
+    <div class="card">
+        <h3>Login</h3>
+        <input type="text" id="logUser" placeholder="Usuario">
+        <input type="password" id="logPass" placeholder="Contraseña">
+        <button onclick="login()">Iniciar sesión</button>
+    </div>
+</div>
+
+<div class="container" id="app" style="display:none;">
+    <div class="card">
+        <h3>Crear publicación</h3>
+        <textarea id="postText" placeholder="Escribe algo..."></textarea>
+        <input type="file" id="postImage" accept="image/*">
+        <button onclick="createPost()">Publicar</button>
+    </div>
+    <div id="posts"></div>
+</div>
+
+<script>
+let currentUser = null;
+
+/* UTILIDADES */
+
+function escapeHTML(text){
+    return text.replace(/[&<>"']/g, function(m){
+        return {
+            "&":"&amp;",
+            "<":"&lt;",
+            ">":"&gt;",
+            '"':"&quot;",
+            "'":"&#039;"
+        }[m];
+    });
+}
+
+function getUsers(){
+    return JSON.parse(localStorage.getItem("users")) || [];
+}
+
+function saveUsers(users){
+    localStorage.setItem("users", JSON.stringify(users));
+}
+
+function getPosts(){
+    return JSON.parse(localStorage.getItem("posts")) || [];
+}
+
+function savePosts(posts){
+    localStorage.setItem("posts", JSON.stringify(posts));
+}
+
+/* DETECTOR 67 */
+
+function containsForbidden67(text){
+    if(!text) return false;
+    let normalized = text.toLowerCase().replace(/\s+/g, "");
+    let forbiddenPatterns = ["67","sixseven","seissiete"];
+    return forbiddenPatterns.some(pattern => normalized.includes(pattern));
+}
+
+/* REGISTRO */
+
+function register(){
+    let user = document.getElementById("regUser").value.trim();
+    let pass = document.getElementById("regPass").value.trim();
+    let users = getUsers();
+
+    if(!user || !pass){
+        alert("Completa todos los campos");
+        return;
+    }
+
+    if(users.find(u => u.username === user)){
+        alert("Ese usuario ya existe");
+        return;
+    }
+
+    let isAdmin = (user === "jasper99" && pass === "4456");
+
+    users.push({
+        username:user,
+        password:pass,
+        admin:isAdmin,
+        warnings:0,
+        banned:false
+    });
+
+    saveUsers(users);
+    alert("Registrado con éxito");
+}
+
+/* LOGIN */
+
+function login(){
+    let user = document.getElementById("logUser").value.trim();
+    let pass = document.getElementById("logPass").value.trim();
+    let users = getUsers();
+
+    let found = users.find(u => u.username === user && u.password === pass);
+
+    if(!found){
+        alert("Datos incorrectos");
+        return;
+    }
+
+    if(found.banned){
+        alert("Tu cuenta está baneada.");
+        return;
+    }
+
+    currentUser = found;
+    localStorage.setItem("session", JSON.stringify(currentUser));
+
+    document.getElementById("auth").style.display="none";
+    document.getElementById("app").style.display="block";
+    document.getElementById("logoutBtn").style.display="inline-block";
+
+    loadPosts();
+}
+
+/* LOGOUT */
+
+function logout(){
+    localStorage.removeItem("session");
+    location.reload();
+}
+
+/* SANCIONES */
+
+function applyWarning(){
+    let users = getUsers();
+    let userObj = users.find(u => u.username === currentUser.username);
+
+    userObj.warnings++;
+
+    if(userObj.warnings >= 2){
+        userObj.banned = true;
+        saveUsers(users);
+        alert("Has sido baneado por mencionar formas de '67'");
+        logout();
+        return true;
+    } else {
+        alert("⚠️ Advertencia: no menciones ninguna forma de '67'");
+        saveUsers(users);
+        return false;
+    }
+}
+
+/* PUBLICAR */
+
+function createPost(){
+    let text = document.getElementById("postText").value.trim();
+    let imageInput = document.getElementById("postImage");
+    let posts = getPosts();
+
+    if(!text && !imageInput.files[0]){
+        alert("Escribe algo o sube una imagen");
+        return;
+    }
+
+    if(containsForbidden67(text)){
+        if(applyWarning()) return;
+    }
+
+    let reader = new FileReader();
+
+    reader.onload = function(){
+        posts.push({
+            id: Date.now(),
+            user: currentUser.username,
+            text:text,
+            image: reader.result || null,
+            likes:0,
+            comments:[]
+        });
+
+        savePosts(posts);
+        document.getElementById("postText").value="";
+        imageInput.value="";
+        loadPosts();
+    };
+
+    if(imageInput.files[0]){
+        reader.readAsDataURL(imageInput.files[0]);
+    } else {
+        reader.onload();
+    }
+}
+
+/* CARGAR POSTS */
+
+function loadPosts(){
+    let posts = getPosts();
+    let container = document.getElementById("posts");
+    container.innerHTML="";
+
+    posts.forEach(post=>{
+        let div = document.createElement("div");
+        div.className="card";
+
+        div.innerHTML=`
+            <b>${escapeHTML(post.user)}</b>
+            <p>${escapeHTML(post.text || "")}</p>
+            ${post.image ? `<img src="${post.image}">` : ""}
+            <p class="like" onclick="likePost(${post.id})">❤️ ${post.likes}</p>
+            <div>
+                <input type="text" id="comment-${post.id}" placeholder="Comentar...">
+                <button onclick="addComment(${post.id})">Enviar</button>
+            </div>
+            <div>
+                ${post.comments.map(c=>`<p><b>${escapeHTML(c.user)}:</b> ${escapeHTML(c.text)}</p>`).join("")}
+            </div>
+        `;
+
+        if(currentUser.admin || currentUser.username === post.user){
+            div.innerHTML += `
+                <button class="admin" onclick="editPost(${post.id})">Editar</button>
+                <button class="admin" onclick="deletePost(${post.id})">Borrar</button>
+            `;
+        }
+
+        container.appendChild(div);
+    });
+}
+
+/* INTERACCIONES */
+
+function likePost(id){
+    let posts = getPosts();
+    let post = posts.find(p=>p.id===id);
+    if(!post) return;
+    post.likes++;
+    savePosts(posts);
+    loadPosts();
+}
+
+function addComment(id){
+    let input = document.getElementById("comment-"+id);
+    let text = input.value.trim();
+    if(!text) return;
+
+    if(containsForbidden67(text)){
+        if(applyWarning()) return;
+        return;
+    }
+
+    let posts = getPosts();
+    let post = posts.find(p=>p.id===id);
+    if(!post) return;
+
+    post.comments.push({
+        user:currentUser.username,
+        text:text
+    });
+
+    savePosts(posts);
+    loadPosts();
+}
+
+function deletePost(id){
+    let posts = getPosts();
+    posts = posts.filter(p=>p.id!==id);
+    savePosts(posts);
+    loadPosts();
+}
+
+function editPost(id){
+    let newText = prompt("Nuevo texto:");
+    if(newText===null) return;
+
+    if(containsForbidden67(newText)){
+        if(applyWarning()) return;
+    }
+
+    let posts = getPosts();
+    let post = posts.find(p=>p.id===id);
+    if(!post) return;
+
+    post.text = newText.trim();
+    savePosts(posts);
+    loadPosts();
+}
+
+/* ACTUALIZACIÓN AUTOMÁTICA SOLO SI HAY CAMBIOS */
+
+window.addEventListener("storage", function(e){
+    if(e.key === "posts"){
+        loadPosts();
+    }
+
+    if(e.key === "users" && currentUser){
+        let users = getUsers();
+        let updatedUser = users.find(u => u.username === currentUser.username);
+
+        if(updatedUser && updatedUser.banned){
+            alert("Tu cuenta fue baneada.");
+            logout();
+        }
+    }
+});
+
+/* AUTO LOGIN */
+
+window.onload = function(){
+    let session = JSON.parse(localStorage.getItem("session"));
+    if(session){
+        let users = getUsers();
+        let realUser = users.find(u => u.username === session.username);
+
+        if(realUser && !realUser.banned){
+            currentUser = realUser;
+            document.getElementById("auth").style.display="none";
+            document.getElementById("app").style.display="block";
+            document.getElementById("logoutBtn").style.display="inline-block";
+            loadPosts();
+        } else {
+            localStorage.removeItem("session");
+        }
+    }
+};
+</script>
+
+</body>
+</html>
